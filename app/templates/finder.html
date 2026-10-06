@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Lead Finder · LeadPilot{% endblock %}
+{% block content %}
+<style>
+  .lf-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}
+  .lf-head h1{margin:0;font-size:31px;line-height:1.05;letter-spacing:-.025em}
+  .lf-head p{margin:7px 0 0;color:#737684;font-size:14px}
+  .lf-actions{display:flex;gap:9px;flex-wrap:wrap}
+  .lf-toolbar{background:#fff;border:1px solid #e6e8ee;border-radius:14px;padding:14px;box-shadow:0 1px 2px rgba(20,24,40,.04);margin-bottom:15px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+  .lf-field{min-width:150px;flex:0 0 auto}
+  .lf-field.run{min-width:275px}
+  .lf-field label{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#7d808d;font-weight:850;margin-bottom:6px}
+  .lf-field select,.lf-field input{width:100%;box-sizing:border-box;border:1px solid #dde0e7;background:#fff;border-radius:9px;padding:9px 11px;font-size:12px;color:#343741;font-weight:700;outline:none}
+  .lf-field select:focus,.lf-field input:focus{border-color:#8c8cff;box-shadow:0 0 0 3px rgba(97,97,255,.08)}
+  .lf-more{position:relative;margin-left:auto}
+  .lf-more summary{list-style:none;border:1px solid #dde0e7;background:#fff;border-radius:9px;padding:9px 12px;font-size:12px;font-weight:800;color:#3d4049;cursor:pointer}
+  .lf-more summary::-webkit-details-marker{display:none}
+  .lf-more summary:after{content:"⌄";margin-left:8px;color:#7b7e8a}
+  .lf-more[open] summary{border-color:#9898ff;box-shadow:0 0 0 3px rgba(97,97,255,.06)}
+  .lf-more-menu{position:absolute;right:0;top:44px;width:380px;background:#fff;border:1px solid #e3e5eb;border-radius:13px;padding:15px;box-shadow:0 18px 50px rgba(30,36,60,.16);z-index:40}
+  .lf-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .lf-more-actions{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #eceef2;margin-top:12px;padding-top:12px}
+  .lf-panel{background:#fff;border:1px solid #e6e8ee;border-radius:14px;box-shadow:0 1px 2px rgba(20,24,40,.04);overflow:hidden}
+  .lf-panel-head{display:flex;justify-content:space-between;align-items:center;padding:17px 20px;border-bottom:1px solid #eceef3}
+  .lf-panel-head h3{margin:0;font-size:15px}
+  .lf-panel-head small{display:block;margin-top:4px;color:#858895;font-size:11px}
+  .lf-table-wrap{overflow:auto}
+  .lf-table{width:100%;border-collapse:collapse;min-width:1100px}
+  .lf-table th{background:#fafbfc;color:#777b88;text-transform:uppercase;letter-spacing:.05em;font-size:10px;text-align:left;padding:11px 14px;border-bottom:1px solid #eceef3}
+  .lf-table td{padding:13px 14px;border-bottom:1px solid #f0f1f4;vertical-align:middle;font-size:12px}
+  .lf-table tbody tr:hover{background:#fafaff}
+  .lf-person{display:flex;align-items:center;gap:10px}
+  .lf-avatar{width:34px;height:34px;border-radius:50%;background:#eef1ff;color:#4964b3;display:grid;place-items:center;font-size:11px;font-weight:900}
+  .lf-person strong{display:block;color:#2c2f38;font-size:12px}
+  .lf-person small{display:block;color:#8b8e99;font-size:10px;margin-top:2px}
+  .lf-score{display:inline-flex;min-width:34px;height:28px;border-radius:8px;background:#ddf7ea;color:#0c8a5f;align-items:center;justify-content:center;font-weight:900}
+  .lf-empty{padding:45px;text-align:center;color:#8d909c}
+  @media(max-width:900px){.lf-more{margin-left:0}.lf-field.run{min-width:220px}}
+  @media(max-width:700px){.lf-head{flex-direction:column}.lf-toolbar{display:grid;grid-template-columns:1fr 1fr}.lf-field,.lf-field.run{min-width:0}.lf-more{grid-column:1/-1}.lf-more-menu{left:0;right:auto;width:min(380px,90vw)}}
+</style>
+
+<div class="lf-head">
+  <div>
+    <h1>Lead Finder</h1>
+    <p>Review the latest discovery or switch to any previous run.</p>
+  </div>
+  <div class="lf-actions">
+    <a class="btn green" href="/export.xlsx?run_id={{selected_run_id if selected_run_id>0 else 0}}">Download Excel</a>
+    <button class="btn" onclick="openModal('saveSearch')">Save search</button>
+  </div>
+</div>
+
+<form class="lf-toolbar" method="get">
+  <div class="lf-field run">
+    <label>Discovery run</label>
+    <select name="run_id" onchange="this.form.submit()">
+      <option value="-1" {{'selected' if selected_run_id==-1}}>All discoveries</option>
+      {% for r in runs %}
+        <option value="{{r.id}}" {{'selected' if selected_run_id==r.id}}>
+          {% if loop.first %}Latest · {% endif %}Run #{{r.id}} · {{r.created_at.strftime('%b %d, %H:%M')}}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="lf-field">
+    <label>Platform</label>
+    <select name="platform" onchange="this.form.submit()">
+      {% for p in ['All','YouTube','Instagram','Facebook Ads'] %}
+        <option value="{{p}}" {{'selected' if filters.platform==p}}>{{p}}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="lf-field">
+    <label>Niche</label>
+    <select name="niche" onchange="this.form.submit()">
+      <option value="All">All</option>
+      {% for n in niches %}<option value="{{n}}" {{'selected' if filters.niche==n}}>{{n}}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="lf-field">
+    <label>Region</label>
+    <select name="region" onchange="this.form.submit()">
+      <option value="All">All</option>
+      {% for r in ['USA','UK','AU'] %}<option value="{{r}}" {{'selected' if filters.region==r}}>{{r}}</option>{% endfor %}
+    </select>
+  </div>
+
+  <details class="lf-more">
+    <summary>More filters</summary>
+    <div class="lf-more-menu">
+      <div class="lf-field" style="min-width:0">
+        <label>Keyword</label>
+        <input name="keyword" value="{{filters.keyword}}" placeholder="mastermind, fitness, high ticket">
+      </div>
+      <div class="lf-grid2">
+        <div class="lf-field" style="min-width:0"><label>Min audience</label><input name="min_followers" type="number" value="{{filters.min_followers}}"></div>
+        <div class="lf-field" style="min-width:0"><label>Max audience</label><input name="max_followers" type="number" value="{{filters.max_followers}}"></div>
+      </div>
+      <div class="lf-grid2">
+        <div class="lf-field" style="min-width:0"><label>Min 30-day views</label><input name="min_views" type="number" value="{{filters.min_views}}"></div>
+        <div class="lf-field" style="min-width:0"><label>Min score</label><input name="min_score" type="number" value="{{filters.min_score}}"></div>
+      </div>
+      <div class="lf-more-actions">
+        <a class="btn small" href="/finder?run_id={{selected_run_id}}">Reset</a>
+        <button class="btn small primary">Apply filters</button>
+      </div>
+    </div>
+  </details>
+</form>
+
+<div class="lf-panel">
+  <div class="lf-panel-head">
+    <div>
+      <h3>{{leads|length}} qualified leads</h3>
+      <small>{% if selected_run_id>0 %}Discovery run #{{selected_run_id}}{% else %}All discovery runs{% endif %}</small>
+    </div>
+    <a href="/export.csv?run_id={{selected_run_id if selected_run_id>0 else 0}}" style="font-size:11px;font-weight:800;color:#6161ff">Export CSV</a>
+  </div>
+
+  {% if leads %}
+  <div class="lf-table-wrap">
+    <table class="lf-table">
+      <thead>
+        <tr><th>Creator</th><th>Platform</th><th>Niche</th><th>Audience</th><th>30D views</th><th>Region</th><th>Coaching</th><th>Email</th><th>Score</th></tr>
+      </thead>
+      <tbody>
+      {% for l in leads %}
+        <tr onclick="showLead({{l.id}})" style="cursor:pointer">
+          <td>
+            <div class="lf-person">
+              <div class="lf-avatar">{{l.name[0]}}{{l.name.split()[-1][0]}}</div>
+              <div><strong>{{l.name}}</strong><small>{{l.handle}}</small></div>
+            </div>
+          </td>
+          <td><span class="badge {{'b-red' if l.platform=='YouTube' else ('b-purple' if l.platform=='Instagram' else 'b-blue')}}">{{l.platform}}</span></td>
+          <td>{{l.niche}}</td>
+          <td>{{"{:,}".format(l.followers)}}</td>
+          <td>{{"{:,}".format(l.views_30d)}}</td>
+          <td>{{l.region or '—'}}</td>
+          <td><span class="badge b-green">{{(l.coaching_confidence*100)|round|int}}%</span></td>
+          <td>{{'✓' if l.email else '—'}}</td>
+          <td><span class="lf-score">{{l.score}}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="lf-empty">No leads match these filters.</div>
+  {% endif %}
+</div>
+
+<div class="modal" id="saveSearch">
+  <div class="modal-card">
+    <form method="post" action="/saved-searches">
+      <div class="modal-head"><b>Save current search</b><button type="button" class="btn small" onclick="closeModal('saveSearch')">×</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Name</label><input name="name" required placeholder="US business coaches"></div>
+        <input type="hidden" name="filters_json" value='{{filters|tojson}}'>
+      </div>
+      <div class="modal-actions"><button type="button" class="btn" onclick="closeModal('saveSearch')">Cancel</button><button class="btn primary">Save</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

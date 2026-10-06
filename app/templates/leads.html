@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}All Leads · LeadPilot{% endblock %}
+{% block content %}
+<style>
+  .al-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:18px}
+  .al-head h1{margin:0;font-size:31px;line-height:1.05;letter-spacing:-.025em}
+  .al-head p{margin:7px 0 0;color:#737684;font-size:14px}
+  .al-toolbar{display:flex;align-items:flex-end;gap:10px;background:#fff;border:1px solid #e6e8ee;border-radius:14px;padding:13px 14px;box-shadow:0 1px 2px rgba(20,24,40,.04);margin-bottom:15px}
+  .al-field{min-width:180px}
+  .al-field label{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#7d808d;font-weight:850;margin-bottom:6px}
+  .al-field select{width:100%;box-sizing:border-box;border:1px solid #dde0e7;background:#fff;border-radius:9px;padding:9px 11px;font-size:12px;color:#343741;font-weight:700;outline:none}
+  .al-count{margin-left:auto;text-align:right}
+  .al-count strong{display:block;font-size:24px;line-height:1;color:#2d3039}
+  .al-count small{display:block;color:#888b97;font-size:10px;margin-top:3px}
+  .al-board{display:grid;grid-template-columns:repeat(4,minmax(250px,1fr));gap:13px;align-items:start}
+  .al-lane{min-width:0}
+  .al-lane-head{display:flex;justify-content:space-between;align-items:center;border-top:4px solid var(--lane-color);padding:10px 2px 9px}
+  .al-lane-head strong{font-size:13px}.al-lane-head span{font-size:11px;font-weight:900;color:#5a5d68}
+  .al-card{background:#fff;border:1px solid #e5e7ed;border-radius:13px;padding:13px;box-shadow:0 1px 2px rgba(20,24,40,.04);margin-bottom:10px;transition:.15s ease}
+  .al-card:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(30,35,55,.07)}
+  .al-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .al-person{display:flex;align-items:center;gap:9px;min-width:0}
+  .al-avatar{width:34px;height:34px;border-radius:50%;background:#eef1ff;color:#4964b3;display:grid;place-items:center;font-size:11px;font-weight:900;flex:0 0 auto}
+  .al-person strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .al-score{display:inline-flex;min-width:35px;height:29px;border-radius:8px;background:#ddf7ea;color:#0c8a5f;align-items:center;justify-content:center;font-weight:900}
+  .al-meta-row{display:flex;align-items:center;gap:7px;margin-top:10px;color:#686b77;font-size:10px}
+  .al-niche{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .al-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .al-stat{background:#f8f9fb;border-radius:9px;padding:8px}
+  .al-stat strong{display:block;font-size:12px;color:#2e313a}
+  .al-stat small{display:block;color:#888b97;font-size:9px;margin-top:2px}
+  .al-footer{margin-top:10px;color:#8a8d98;font-size:10px}
+  .al-empty{background:#fff;border:1px dashed #dfe2e8;border-radius:11px;padding:22px;text-align:center;color:#9a9da8;font-size:11px}
+  @media(max-width:1200px){.al-board{grid-template-columns:repeat(2,minmax(250px,1fr))}}
+  @media(max-width:700px){.al-head{flex-direction:column}.al-toolbar{flex-wrap:wrap}.al-field{min-width:0;flex:1 1 180px}.al-count{width:100%;text-align:left;margin-left:0}.al-board{grid-template-columns:1fr}}
+</style>
+
+<div class="al-head">
+  <div>
+    <h1>All Leads</h1>
+    <p>Your complete lead database across every source and discovery run.</p>
+  </div>
+  <a class="btn primary" href="/finder">Find new leads</a>
+</div>
+
+<form class="al-toolbar" method="get">
+  <div class="al-field">
+    <label>Source</label>
+    <select name="platform" onchange="this.form.submit()">
+      {% for p in ['All','YouTube','Instagram','Facebook Ads'] %}
+        <option value="{{p}}" {{'selected' if platform==p}}>{{p}}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="al-field">
+    <label>Status</label>
+    <select name="status" onchange="this.form.submit()">
+      {% for s in ['All','New','Qualified','Saved','Contacted'] %}
+        <option value="{{s}}" {{'selected' if status==s}}>{{s}}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="al-count">
+    <strong>{{leads|length}}</strong>
+    <small>leads shown</small>
+  </div>
+</form>
+
+<div class="al-board">
+{% for s,color in [('New','#579bfc'),('Qualified','#00c875'),('Saved','#6161ff'),('Contacted','#fdab3d')] %}
+  <div class="al-lane" style="--lane-color:{{color}}">
+    <div class="al-lane-head">
+      <strong>{{s}}</strong>
+      <span>{{leads|selectattr('status','equalto',s)|list|length}}</span>
+    </div>
+
+    {% set lane_items = leads|selectattr('status','equalto',s)|list %}
+    {% if lane_items %}
+      {% for l in lane_items %}
+        <div class="al-card" onclick="showLead({{l.id}})" style="cursor:pointer">
+          <div class="al-card-head">
+            <div class="al-person">
+              <div class="al-avatar">{{l.name[0]}}{{l.name.split()[-1][0]}}</div>
+              <strong>{{l.name}}</strong>
+            </div>
+            <span class="al-score">{{l.score}}</span>
+          </div>
+
+          <div class="al-meta-row">
+            <span class="badge {{'b-red' if l.platform=='YouTube' else ('b-purple' if l.platform=='Instagram' else 'b-blue')}}">{{l.platform}}</span>
+            <span class="al-niche">{{l.niche}}</span>
+          </div>
+
+          <div class="al-stats">
+            <div class="al-stat"><strong>{{"{:,}".format(l.followers)}}</strong><small>Audience</small></div>
+            <div class="al-stat"><strong>{{"{:,}".format(l.views_30d)}}</strong><small>30D views</small></div>
+          </div>
+
+          <div class="al-footer">{{l.region or 'Region unavailable'}} · {{'Email found' if l.email else 'No email yet'}}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="al-empty">No {{s|lower}} leads</div>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

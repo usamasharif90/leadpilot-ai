@@ -1,0 +1,15 @@
+youtube:
+  keywords: [business coach, fitness coach, career coach]
+  regions: [US, GB, AU]
+  min_subs: 5000
+  max_subs: 500000
+  min_views_30d: 20000
+  pages_per_keyword: 1
+filters:
+  language: English
+  exclude_faceless: true
+  sells_coaching: true
+llm:
+  enabled: false
+output:
+  dir: data

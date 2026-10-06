@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Outreach · LeadPilot{% endblock %}{% block content %}
+<div class="page-head"><div><h1>Outreach</h1><p>Generate personalized first-touch messages from qualified lead data.</p></div></div>
+<div class="grid2">
+  <div class="panel"><div class="panel-head"><h3>Hot leads</h3><span class="badge b-green">Score 80+</span></div><div class="table-wrap"><table><thead><tr><th>Creator</th><th>Niche</th><th>Score</th><th></th></tr></thead><tbody>
+  {% for l in leads %}<tr><td><div class="person"><div class="pic">{{l.name[0]}}{{l.name.split()[-1][0]}}</div><div><b>{{l.name}}</b><small>{{l.handle}}</small></div></div></td><td>{{l.niche}}</td><td><div class="score">{{l.score}}</div></td><td><form method="post" action="/outreach/{{l.id}}"><button class="btn small">Generate</button></form></td></tr>{% endfor %}
+  </tbody></table></div></div>
+  <div class="panel"><div class="panel-head"><h3>Recent drafts</h3></div><div class="panel-body">{% for d in drafts %}<div class="mini" style="margin-bottom:9px;white-space:pre-wrap">{{d.message}}</div>{% endfor %}</div></div>
+</div>{% endblock %}

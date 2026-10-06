@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}LeadPilot AI{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css?v=final-1">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">L</div><span>LeadPilot AI</span></div>
+    <div class="workspace"><b>{{workspace.name}}</b><small>{{workspace.plan}} · {{workspace.subscription_status}}</small></div>
+    <nav class="nav">
+      <div class="nav-title">Workspace</div>
+      <a href="/" class="{{'active' if active=='dashboard'}}"><b class="ico">◫</b><span>Overview</span></a>
+      <a href="/finder" class="{{'active' if active=='finder'}}"><b class="ico">⌕</b><span>Lead Finder</span></a>
+      <a href="/leads" class="{{'active' if active=='leads'}}"><b class="ico">☷</b><span>All Leads</span></a>
+      <a href="/lists" class="{{'active' if active=='lists'}}"><b class="ico">☆</b><span>Saved Lists</span></a>
+      <div class="nav-title">Operations</div>
+      <a href="/outreach" class="{{'active' if active=='outreach'}}"><b class="ico">✉</b><span>Outreach</span></a>
+      <a href="/batches" class="{{'active' if active=='batches'}}"><b class="ico">▣</b><span>Weekly Batches</span></a>
+      <a href="/clients" class="{{'active' if active=='clients'}}"><b class="ico">♙</b><span>Clients</span></a>
+      <div class="nav-title">Data & account</div>
+      <a href="/sources" class="{{'active' if active=='sources'}}"><b class="ico">↻</b><span>Data Sources</span></a>
+      <a href="/billing" class="{{'active' if active=='billing'}}"><b class="ico">$</b><span>Billing</span></a>
+      <a href="/settings" class="{{'active' if active=='settings'}}"><b class="ico">⚙</b><span>Settings</span></a>
+    </nav>
+    <div class="sidebar-bottom nav"><a href="/logout"><b class="ico">↪</b><span>Log out</span></a></div>
+  </aside>
+
+  <section class="main">
+    <header class="topbar">
+      <div class="search">⌕ <input placeholder="Search workspace..."></div>
+      <div class="user">
+        <a class="btn small" href="/billing">{{workspace.used_this_month}} / {{workspace.monthly_limit}} leads</a>
+        <div class="avatar">{{user.full_name[:2].upper()}}</div>
+      </div>
+    </header>
+    <main class="content">{% block content %}{% endblock %}</main>
+  </section>
+</div>
+
+<div class="modal" id="leadModal">
+  <div class="modal-card">
+    <div class="modal-head"><div><b id="leadName">Lead</b><div id="leadSubtitle" style="color:#777;font-size:11px;margin-top:3px"></div></div><button class="btn small" onclick="closeModal('leadModal')">×</button></div>
+    <div class="modal-body" id="leadBody"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal('leadModal')">Close</button></div>
+  </div>
+</div>
+<script src="/static/app.js?v=final-1"></script>
+</body>
+</html>

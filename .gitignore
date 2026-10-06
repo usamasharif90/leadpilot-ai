@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+data/*.db
+data/*.sqlite*
+.DS_Store
+.pytest_cache/
+.idea/
+.vscode/
+*.log
+
+# Generated discovery files
+data/workspace_*.csv
+
+# Local engine database
+engine/data/

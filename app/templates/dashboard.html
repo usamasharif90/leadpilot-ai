@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block title %}Overview · LeadPilot{% endblock %}{% block content %}
+<div class="page-head"><div><h1>Overview</h1><p>Your lead-generation operation at a glance.</p></div><div class="actions"><a class="btn" href="/export.csv">Export CSV</a><a class="btn primary" href="/finder">+ Find leads</a></div></div>
+<div class="cards">
+  <div class="metric"><div class="k">Total leads</div><div class="v">{{stats.leads}}</div><div class="s">Workspace database</div></div>
+  <div class="metric"><div class="k">Hot leads</div><div class="v">{{stats.hot}}</div><div class="s">Score 80+</div></div>
+  <div class="metric"><div class="k">Emails found</div><div class="v">{{stats.emails}}</div><div class="s">Ready to contact</div></div>
+  <div class="metric"><div class="k">Clients</div><div class="v">{{stats.clients}}</div><div class="s">Fulfillment accounts</div></div>
+</div>
+<div class="grid2">
+  <div class="panel"><div class="panel-head"><div><h3>Top qualified leads</h3></div><a class="btn small" href="/finder">Open Finder</a></div>
+    <div class="table-wrap"><table><thead><tr><th>Creator</th><th>Platform</th><th>Niche</th><th>Audience</th><th>30D views</th><th>Score</th></tr></thead><tbody>
+    {% for l in leads %}<tr onclick="showLead({{l.id}})" style="cursor:pointer"><td><div class="person"><div class="pic">{{l.name[0]}}{{l.name.split()[-1][0]}}</div><div><b>{{l.name}}</b><small>{{l.handle}}</small></div></div></td><td><span class="badge {{'b-red' if l.platform=='YouTube' else 'b-purple'}}">{{l.platform}}</span></td><td>{{l.niche}}</td><td>{{"{:,}".format(l.followers)}}</td><td>{{"{:,}".format(l.views_30d)}}</td><td><div class="score">{{l.score}}</div></td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="panel"><div class="panel-head"><h3>Recent activity</h3></div><div class="panel-body">{% for a in activities %}<div class="activity"><div class="dot"></div><div><b>{{a.label}}</b><small>{{a.detail}}</small></div></div>{% endfor %}</div></div>
+</div>{% endblock %}
