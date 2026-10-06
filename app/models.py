@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import create_engine, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import create_engine, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from datetime import datetime
 import os
@@ -27,9 +27,13 @@ class Workspace(Base):
     name: Mapped[str] = mapped_column(String(150))
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     plan: Mapped[str] = mapped_column(String(40), default="Starter")
-    subscription_status: Mapped[str] = mapped_column(String(40), default="trial")
+    subscription_status: Mapped[str] = mapped_column(String(40), default="inactive")
     stripe_customer_id: Mapped[str] = mapped_column(String(120), default="")
-    monthly_limit: Mapped[int] = mapped_column(Integer, default=100)
+    stripe_subscription_id: Mapped[str] = mapped_column(String(120), default="")
+    stripe_price_id: Mapped[str] = mapped_column(String(120), default="")
+    stripe_current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    stripe_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    monthly_limit: Mapped[int] = mapped_column(Integer, default=0)
     used_this_month: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -147,6 +151,14 @@ class OutreachDraft(Base):
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
+class StripeEvent(Base):
+    __tablename__ = "stripe_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class Activity(Base):
     __tablename__ = "activity"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -155,9 +167,30 @@ class Activity(Base):
     detail: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+def _ensure_workspace_billing_columns():
+    """Small compatibility migration for existing SQLite/Postgres installs."""
+    inspector = inspect(engine)
+    if "workspaces" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("workspaces")}
+    statements = []
+    if "stripe_subscription_id" not in existing:
+        statements.append("ALTER TABLE workspaces ADD COLUMN stripe_subscription_id VARCHAR(120) DEFAULT ''")
+    if "stripe_price_id" not in existing:
+        statements.append("ALTER TABLE workspaces ADD COLUMN stripe_price_id VARCHAR(120) DEFAULT ''")
+    if "stripe_current_period_end" not in existing:
+        statements.append("ALTER TABLE workspaces ADD COLUMN stripe_current_period_end TIMESTAMP NULL")
+    if "stripe_cancel_at_period_end" not in existing:
+        statements.append("ALTER TABLE workspaces ADD COLUMN stripe_cancel_at_period_end BOOLEAN DEFAULT FALSE")
+    if statements:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+
 def init_db():
     os.makedirs("data", exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _ensure_workspace_billing_columns()
 
     # Backfill older installations once so existing live leads appear under the
     # most recent completed discovery run.

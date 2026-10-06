@@ -1,1 +1,75 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/app.css"><title>LeadPilot AI</title></head><body><div class="auth"><div class="auth-left"><div class="brand"><div class="logo">L</div><span>LeadPilot AI</span></div><h1>Find creator-led coaching businesses before your competitors do.</h1><p>Discover, qualify, enrich and organize coaching prospects across YouTube and Instagram from one agency workspace.</p></div><div class="auth-right"><div class="auth-card"><h2>{{'Create your workspace' if mode=='signup' else 'Welcome back'}}</h2><p style="color:#777">{{'Start your LeadPilot workspace.' if mode=='signup' else 'Sign in to your prospecting workspace.'}}</p>{% if error %}<div class="notice">{{error}}</div>{% endif %}<form method="post">{% if mode=='signup' %}<div><label>Full name</label><input name="full_name" required></div><div><label>Workspace name</label><input name="workspace_name" required></div>{% endif %}<div><label>Email</label><input name="email" type="email" required></div><div><label>Password</label><input name="password" type="password" required></div><button class="btn primary" style="justify-content:center;padding:12px">{{'Create account' if mode=='signup' else 'Sign in'}}</button></form><p style="margin-top:18px;color:#777;font-size:13px">{% if mode=='signup' %}Already have an account? <a href="/login" style="color:#6161ff">Sign in</a>{% else %}New here? <a href="/signup" style="color:#6161ff">Create workspace</a><br><br>Demo login: demo@leadpilot.local / demo1234{% endif %}</p></div></div></div></body></html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{'Create workspace' if mode=='signup' else 'Sign in'}} · LeadPilot AI</title>
+  <style>
+    :root{--purple:#6161ff;--purple2:#5151e8;--text:#242731;--muted:#747887;--line:#e3e6ed;--bg:#f6f7fb}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}
+    a{text-decoration:none}button,input{font:inherit}
+    .auth{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(420px,.92fr);background:#fff}
+    .hero{position:relative;overflow:hidden;padding:56px 64px;display:flex;flex-direction:column;justify-content:center;color:#fff;background:radial-gradient(circle at 20% 15%,rgba(255,255,255,.13),transparent 28%),radial-gradient(circle at 80% 80%,rgba(137,108,255,.36),transparent 32%),linear-gradient(135deg,#252a47 0%,#3b3f73 48%,#6161ff 100%)}
+    .hero:after{content:"";position:absolute;width:520px;height:520px;border-radius:50%;right:-220px;bottom:-260px;border:1px solid rgba(255,255,255,.13);box-shadow:0 0 0 70px rgba(255,255,255,.035),0 0 0 140px rgba(255,255,255,.025)}
+    .brand{position:relative;z-index:1;display:flex;align-items:center;gap:11px;font-weight:900;font-size:18px;margin-bottom:58px}
+    .logo{width:38px;height:38px;border-radius:11px;background:#fff;color:var(--purple);display:grid;place-items:center;font-weight:950;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+    .hero h1{position:relative;z-index:1;margin:0;max-width:650px;font-size:50px;line-height:1.04;letter-spacing:-.04em}
+    .hero p{position:relative;z-index:1;max-width:580px;margin:20px 0 0;color:#e8e9ff;font-size:17px;line-height:1.65}
+    .proof{position:relative;z-index:1;display:flex;gap:10px;flex-wrap:wrap;margin-top:34px}
+    .proof span{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);border-radius:999px;padding:7px 10px;font-size:10px;font-weight:800;color:#f2f2ff}
+    .side{display:flex;align-items:center;justify-content:center;padding:48px;background:#fff}
+    .card{width:min(430px,100%)}
+    .card h2{margin:0;font-size:31px;letter-spacing:-.025em}
+    .sub{margin:8px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+    form{display:grid;gap:14px;margin-top:26px}
+    label{display:block;margin-bottom:6px;font-size:10px;font-weight:850;color:#636775;text-transform:uppercase;letter-spacing:.055em}
+    input{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px 13px;background:#fff;color:#2e313a;outline:none;font-size:13px}
+    input:focus{border-color:#9292ff;box-shadow:0 0 0 4px rgba(97,97,255,.08)}
+    .submit{width:100%;border:0;border-radius:10px;padding:12px 14px;background:var(--purple);color:#fff;font-size:12px;font-weight:900;cursor:pointer;margin-top:3px}
+    .submit:hover{background:var(--purple2)}
+    .notice{padding:10px 12px;border-radius:9px;background:#fff3d5;color:#865d00;font-size:11px;border:1px solid #ffe2a1;margin-top:16px}
+    .footer{margin-top:20px;color:#7b7e89;font-size:11px;line-height:1.7}.footer a{color:var(--purple);font-weight:850}
+    .secure{margin-top:22px;padding-top:17px;border-top:1px solid #eef0f4;color:#9497a2;font-size:9px;line-height:1.5}
+    @media(max-width:980px){.auth{grid-template-columns:1fr}.hero{display:none}.side{min-height:100vh;padding:30px 20px;background:var(--bg)}.card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:26px;box-shadow:0 12px 36px rgba(32,38,60,.07)}}
+  </style>
+</head>
+<body>
+  <main class="auth">
+    <section class="hero">
+      <div class="brand"><div class="logo">L</div><span>LeadPilot AI</span></div>
+      <h1>Find creator-led coaching businesses before your competitors do.</h1>
+      <p>Discover, qualify, enrich and organize coaching prospects across YouTube and Instagram from one agency workspace.</p>
+      <div class="proof"><span>Live YouTube discovery</span><span>Instagram enrichment</span><span>USA · UK · AU</span><span>Qualified lead scoring</span></div>
+    </section>
+
+    <section class="side">
+      <div class="card">
+        <h2>{{'Create your workspace' if mode=='signup' else 'Welcome back'}}</h2>
+        <p class="sub">{{'Create your LeadPilot account and choose a subscription plan.' if mode=='signup' else 'Sign in to your prospecting workspace.'}}</p>
+
+        {% if error %}<div class="notice">{{error}}</div>{% endif %}
+
+        <form method="post">
+          {% if mode=='signup' %}
+          <div><label>Full name</label><input name="full_name" autocomplete="name" required></div>
+          <div><label>Workspace name</label><input name="workspace_name" required></div>
+          {% endif %}
+          <div><label>Email</label><input name="email" type="email" autocomplete="email" required></div>
+          <div><label>Password</label><input name="password" type="password" autocomplete="{{'new-password' if mode=='signup' else 'current-password'}}" required></div>
+          <button class="submit">{{'Create account' if mode=='signup' else 'Sign in'}}</button>
+        </form>
+
+        <div class="footer">
+          {% if mode=='signup' %}
+            Already have an account? <a href="/login">Sign in</a>
+          {% else %}
+            New to LeadPilot? <a href="/signup">Create workspace</a>
+          {% endif %}
+        </div>
+
+        <div class="secure">Secure workspace access. API credentials and billing secrets remain server-side.</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,5 +1,5 @@
+
 from __future__ import annotations
-import time
 from fastapi import FastAPI, Request, Form, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +47,90 @@ PLANS={
  "Growth":{"limit":300,"price":950},
  "Scale":{"limit":750,"price":1500},
 }
+
+ACTIVE_SUBSCRIPTION_STATUSES={"active","trialing","trial"}
+
+def stripe_price_ids():
+    return {
+        "Starter":os.getenv("STRIPE_PRICE_STARTER","").strip(),
+        "Growth":os.getenv("STRIPE_PRICE_GROWTH","").strip(),
+        "Scale":os.getenv("STRIPE_PRICE_SCALE","").strip(),
+    }
+
+def plan_from_price_id(price_id:str):
+    if not price_id:
+        return None
+    for name,pid in stripe_price_ids().items():
+        if pid and pid==price_id:
+            return name
+    return None
+
+def _stripe_obj_get(obj, key, default=None):
+    try:
+        if isinstance(obj,dict):
+            return obj.get(key,default)
+        return getattr(obj,key,default)
+    except Exception:
+        return default
+
+def _subscription_price_id(subscription):
+    items=_stripe_obj_get(subscription,"items")
+    data=_stripe_obj_get(items,"data",[]) or []
+    if not data:
+        return ""
+    price=_stripe_obj_get(data[0],"price")
+    return _stripe_obj_get(price,"id","") or ""
+
+def _subscription_period_end(subscription):
+    value=_stripe_obj_get(subscription,"current_period_end")
+    if not value:
+        return None
+    try:
+        return datetime.utcfromtimestamp(int(value))
+    except Exception:
+        return None
+
+def apply_stripe_subscription(db, workspace, subscription):
+    status=_stripe_obj_get(subscription,"status","inactive") or "inactive"
+    price_id=_subscription_price_id(subscription)
+    plan=plan_from_price_id(price_id)
+    customer_id=_stripe_obj_get(subscription,"customer","") or ""
+    sub_id=_stripe_obj_get(subscription,"id","") or ""
+
+    if customer_id:
+        workspace.stripe_customer_id=str(customer_id)
+    if sub_id:
+        workspace.stripe_subscription_id=str(sub_id)
+    if price_id:
+        workspace.stripe_price_id=str(price_id)
+
+    workspace.subscription_status=str(status)
+    workspace.stripe_current_period_end=_subscription_period_end(subscription)
+    workspace.stripe_cancel_at_period_end=bool(_stripe_obj_get(subscription,"cancel_at_period_end",False))
+
+    if plan:
+        workspace.plan=plan
+        workspace.monthly_limit=PLANS[plan]["limit"]
+    elif status not in ACTIVE_SUBSCRIPTION_STATUSES:
+        workspace.monthly_limit=0
+
+def workspace_for_stripe_object(db, obj):
+    metadata=_stripe_obj_get(obj,"metadata",{}) or {}
+    wid=_stripe_obj_get(metadata,"workspace_id")
+    if wid:
+        try:
+            w=db.get(Workspace,int(wid))
+            if w:
+                return w
+        except Exception:
+            pass
+    customer=_stripe_obj_get(obj,"customer","") or ""
+    if customer:
+        return db.scalar(select(Workspace).where(Workspace.stripe_customer_id==str(customer)))
+    return None
+
+def app_url():
+    return os.getenv("APP_URL","http://127.0.0.1:8000").rstrip("/")
 
 def get_db():
     return SessionLocal()
@@ -153,7 +237,9 @@ def signup(full_name:str=Form(...),workspace_name:str=Form(...),email:str=Form(.
     with get_db() as db:
         try:
             u=User(email=email.lower().strip(),password_hash=hash_password(password),full_name=full_name);db.add(u);db.flush()
-            w=Workspace(name=workspace_name,owner_user_id=u.id,plan="Starter",subscription_status="trial",monthly_limit=100);db.add(w);db.flush()
+            trial_leads=max(0,int(os.getenv("FREE_TRIAL_LEADS","0") or 0))
+            trial_status="trial" if trial_leads>0 else "inactive"
+            w=Workspace(name=workspace_name,owner_user_id=u.id,plan="Starter",subscription_status=trial_status,monthly_limit=trial_leads);db.add(w);db.flush()
             db.add(Membership(workspace_id=w.id,user_id=u.id,role="owner"));seed_workspace(db,w.id);db.commit()
             r=RedirectResponse("/",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",max_age=60*60*24*30);return r
         except IntegrityError:
@@ -348,7 +434,7 @@ def apify_instagram_search(keywords:str, limit:int=25):
         return []
     url=f"https://api.apify.com/v2/actors/apify~instagram-search-scraper/run-sync-get-dataset-items?token={token}"
     payload={"search":keywords,"searchType":"user","searchLimit":limit}
-    r=requests.post(url,json=payload,timeout=45)
+    r=requests.post(url,json=payload,timeout=180)
     r.raise_for_status()
     data=r.json()
     return data if isinstance(data,list) else []
@@ -368,100 +454,11 @@ def _coaching_signal(text:str, keywords:str):
     conf=min(0.98,0.55 + hits*0.08 + kw_hits*0.04)
     return (hits>0 or kw_hits>=2), round(conf,2)
 
-
-TARGET_REGION_CODES={"USA","UK","AU"}
-
-_US_TERMS = (
-    "united states","usa","u.s.a.","new york","los angeles","san francisco","san diego",
-    "miami","austin","dallas","houston","chicago","boston","seattle","denver","phoenix",
-    "atlanta","orlando","las vegas","washington dc","washington, dc","california","texas",
-    "florida","new jersey","pennsylvania","ohio","michigan","virginia","arizona",
-    "colorado","north carolina","south carolina","tennessee","massachusetts","illinois"
-)
-_UK_TERMS = (
-    "united kingdom","u.k.","england","scotland","wales","northern ireland",
-    "london","manchester","birmingham","glasgow","edinburgh","liverpool","leeds",
-    "bristol","cardiff","belfast","nottingham","sheffield"
-)
-_AU_TERMS = (
-    "australia","australian","sydney","melbourne","brisbane","perth","adelaide",
-    "gold coast","canberra","hobart","darwin","new south wales","queensland",
-    "victoria","western australia","south australia"
-)
-
-def _flatten_geo_values(value):
-    out=[]
-    if isinstance(value,str):
-        out.append(value)
-    elif isinstance(value,dict):
-        for v in value.values():
-            out.extend(_flatten_geo_values(v))
-    elif isinstance(value,list):
-        for v in value:
-            out.extend(_flatten_geo_values(v))
-    return out
-
-def infer_target_region(row:dict):
-    if not isinstance(row,dict):
-        return ""
-
-    structured_keys=(
-        "country","countryCode","country_code","businessAddress","business_address",
-        "location","locationName","city","cityName","address","businessLocation"
-    )
-    structured=[]
-    for key in structured_keys:
-        if key in row:
-            structured.extend(_flatten_geo_values(row.get(key)))
-
-    structured_text=" | ".join(structured).lower()
-    code=str(row.get("countryCode") or row.get("country_code") or row.get("country") or "").strip().upper()
-    if code in {"US","USA","UNITED STATES","UNITED STATES OF AMERICA"}:
-        return "USA"
-    if code in {"GB","UK","UNITED KINGDOM","GREAT BRITAIN"}:
-        return "UK"
-    if code in {"AU","AUS","AUSTRALIA"}:
-        return "AU"
-
-    def has_any(text, terms):
-        return any(term in text for term in terms)
-
-    if has_any(structured_text,_US_TERMS): return "USA"
-    if has_any(structured_text,_UK_TERMS): return "UK"
-    if has_any(structured_text,_AU_TERMS): return "AU"
-
-    bio_text=" ".join([
-        str(row.get("biography") or row.get("bio") or ""),
-        str(row.get("fullName") or row.get("name") or ""),
-    ]).lower()
-    if has_any(bio_text,_US_TERMS): return "USA"
-    if has_any(bio_text,_UK_TERMS): return "UK"
-    if has_any(bio_text,_AU_TERMS): return "AU"
-    return ""
-
-
 def import_instagram_leads(wid:int,payload:dict,job_id:int):
     token=os.getenv("APIFY_API_TOKEN","").strip()
     if not token:
         return 0
-    base_keywords=payload.get("keywords","business coach")
-    search_terms=[]
-    for raw in [x.strip() for x in base_keywords.split(",") if x.strip()]:
-        search_terms.extend([f"{raw} USA", f"{raw} United Kingdom", f"{raw} Australia"])
-
-    rows=[]
-    seen=set()
-    for term in search_terms[:9]:
-        try:
-            batch=apify_instagram_search(term, limit=12)
-        except Exception as e:
-            print(f"Instagram target-market search failed for {term}: {e}")
-            batch=[]
-        for item in batch:
-            key=str(item.get("id") or item.get("username") or "")
-            if key and key not in seen:
-                seen.add(key)
-                rows.append(item)
+    rows=apify_instagram_search(payload.get("keywords","business coach"), limit=30)
     min_followers=int(payload.get("min_followers",5000))
     max_followers=int(payload.get("max_followers",500000))
     with get_db() as db:
@@ -471,22 +468,6 @@ def import_instagram_leads(wid:int,payload:dict,job_id:int):
             ext=str(r.get("id") or username).strip()
             if not ext or not username:
                 continue
-            profile_url=r.get("url") or r.get("profileUrl") or f"https://www.instagram.com/{username}/"
-            details={}
-            try:
-                details=apify_instagram_profile_details(profile_url)
-            except Exception as e:
-                print(f"Instagram geo detail lookup failed for {username}: {e}")
-
-            merged=dict(r)
-            if details:
-                merged.update({k:v for k,v in details.items() if v not in (None,"",[],{})})
-            r=merged
-
-            region=infer_target_region(r)
-            if region not in TARGET_REGION_CODES:
-                continue
-
             followers=_to_int(r.get("followersCount") or r.get("followers") or r.get("followedByCount"))
             # Search results sometimes omit follower count. Keep the live result if count is unknown;
             # otherwise enforce the requested audience range.
@@ -494,7 +475,7 @@ def import_instagram_leads(wid:int,payload:dict,job_id:int):
                 continue
             bio=r.get("biography") or r.get("bio") or ""
             full_name=r.get("fullName") or r.get("name") or username
-            profile_url=r.get("url") or r.get("profileUrl") or profile_url
+            profile_url=r.get("url") or f"https://www.instagram.com/{username}/"
             sells,conf=_coaching_signal(f"{full_name} {bio}",payload.get("keywords",""))
             if not sells:
                 continue
@@ -507,7 +488,6 @@ def import_instagram_leads(wid:int,payload:dict,job_id:int):
                 exists.followers=followers or exists.followers
                 exists.ig_handle="@"+username.lstrip("@")
                 exists.ig_followers=followers or exists.ig_followers
-                exists.region=region
                 exists.evidence=bio[:1000]
                 exists.coaching_confidence=conf
                 exists.updated_at=datetime.utcnow()
@@ -522,7 +502,7 @@ def import_instagram_leads(wid:int,payload:dict,job_id:int):
                 workspace_id=wid,platform="Instagram",external_id=ext,name=full_name,
                 handle="@"+username.lstrip("@"),profile_url=profile_url,
                 niche=payload.get("niche","Unclassified"),followers=followers,views_30d=0,
-                region=region,language="English",sells_coaching=True,coaching_confidence=conf,
+                region="",language="English",sells_coaching=True,coaching_confidence=conf,
                 faceless_screen="uncertain",email="",ig_handle="@"+username.lstrip("@"),
                 ig_followers=followers,score=score,status="New",evidence=bio[:1000],source="apify_instagram_live"
             )
@@ -550,11 +530,11 @@ def _extract_domain(text:str):
 
 def _ig_urls(row:dict):
     vals=[]
-    for key in ("externalUrl","external_url","website","websiteUrl","bioLink","urlExternal","external_url_linkshimmed"):
+    for key in ("externalUrl","website","websiteUrl","bioLink","urlExternal"):
         v=row.get(key)
         if isinstance(v,str) and v.startswith("http"):
             vals.append(v)
-    for key in ("externalUrls","externalLinks","bioLinks","bio_links","links"):
+    for key in ("externalUrls","bioLinks","links"):
         v=row.get(key)
         if isinstance(v,list):
             for item in v:
@@ -612,182 +592,84 @@ def hunter_domain_lookup(domain:str):
         print(f"Hunter lookup failed for {domain}: {e}")
         return "",0.0
 
-
-def apify_instagram_profile_details(profile_url:str):
-    token=os.getenv("APIFY_API_TOKEN","").strip()
-    if not token or not profile_url:
-        return {}
-    try:
-        url=f"https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token={token}"
-        payload={
-            "directUrls":[profile_url],
-            "resultsType":"details",
-            "resultsLimit":1
-        }
-        r=requests.post(url,json=payload,timeout=60)
-        r.raise_for_status()
-        data=r.json()
-        if isinstance(data,list) and data:
-            return data[0] if isinstance(data[0],dict) else {}
-    except Exception as e:
-        print(f"Instagram profile detail lookup failed for {profile_url}: {e}")
-    return {}
-
-def _emails_from_text(text:str):
-    import re
-    if not text:
-        return []
-    found=re.findall(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, flags=re.I)
-    return list(dict.fromkeys(x.strip(".,;:()[]<>") for x in found))
-
-def _best_public_email(row:dict):
-    keys=(
-        "businessEmail","publicEmail","contactEmail","email",
-        "contact_email","public_email","business_email"
-    )
-    for key in keys:
+def _public_email_from_ig(row:dict):
+    for key in ("businessEmail","publicEmail","email","contactEmail"):
         value=row.get(key)
         if isinstance(value,str) and "@" in value:
             return value.strip()
-    for key in ("emailsFound","allEmails","emails"):
-        value=row.get(key)
-        if isinstance(value,list):
-            for item in value:
-                if isinstance(item,str) and "@" in item:
-                    return item.strip()
-                if isinstance(item,dict):
-                    for k in ("email","value","address"):
-                        v=item.get(k)
-                        if isinstance(v,str) and "@" in v:
-                            return v.strip()
-    for key in ("biography","bio","description"):
-        hits=_emails_from_text(row.get(key) or "")
-        if hits:
-            return hits[0]
     return ""
 
-def _public_email_from_ig(row:dict):
-    return _best_public_email(row)
-
-def enrich_workspace_leads(wid:int, job_id:int, max_leads:int=10):
+def enrich_workspace_leads(wid:int, max_leads:int=20):
+    """Match live IG profiles and add public/Hunter email data to live leads."""
     has_apify=bool(os.getenv("APIFY_API_TOKEN","").strip())
     has_hunter=bool(os.getenv("HUNTER_API_KEY","").strip())
     if not has_apify and not has_hunter:
         return {"instagram":0,"email":0,"checked":0}
 
     with get_db() as db:
-        q=(
-            select(Lead)
-            .join(JobLead, JobLead.lead_id==Lead.id)
-            .where(
+        leads=db.scalars(
+            select(Lead).where(
                 Lead.workspace_id==wid,
-                JobLead.job_id==job_id,
                 Lead.source!="demo",
                 or_(Lead.ig_handle=="", Lead.email=="")
-            )
-            .order_by(Lead.score.desc())
-            .limit(max_leads)
-        )
-        lead_ids=[x.id for x in db.scalars(q).all()]
-
-    total=len(lead_ids)
-    ig_count=0
-    email_count=0
-    checked=0
-
-    for idx, lead_id in enumerate(lead_ids, start=1):
-        candidate=None
-
-        with get_db() as db:
-            lead=db.get(Lead,lead_id)
-            if not lead:
-                continue
-
+            ).order_by(Lead.score.desc()).limit(max_leads)
+        ).all()
+        ig_count=0; email_count=0; checked=0
+        for lead in leads:
             checked+=1
+            candidate=None
 
-            if has_apify and lead.platform=="Instagram" and lead.profile_url:
+            if has_apify:
                 try:
-                    candidate=apify_instagram_profile_details(lead.profile_url)
-                except Exception as e:
-                    print(f"Instagram detail lookup failed for {lead.name}: {e}")
-
-            if has_apify and lead.platform!="Instagram" and not lead.ig_handle:
-                try:
-                    query=(lead.handle or lead.name or "").lstrip("@").strip()
+                    query=(lead.ig_handle or lead.handle or lead.name or "").lstrip("@").strip()
                     if query:
-                        rows=apify_instagram_search(query,limit=3)
-                        candidate=_best_ig_match(lead,rows)
+                        rows=apify_instagram_search(query,limit=5)
+                        if lead.platform=="Instagram":
+                            wanted=(lead.ig_handle or lead.handle or "").lstrip("@").lower()
+                            candidate=next((r for r in rows if (r.get("username") or "").lower()==wanted),None) or _best_ig_match(lead,rows)
+                        else:
+                            candidate=_best_ig_match(lead,rows)
                 except Exception as e:
                     print(f"Instagram match failed for {lead.name}: {e}")
 
             if candidate:
                 username=(candidate.get("username") or "").lstrip("@").strip()
-
-                # Search results can omit contact fields. Pull the exact public profile
-                # details before trying email/Hunter enrichment.
-                profile_url=(
-                    candidate.get("url")
-                    or candidate.get("profileUrl")
-                    or candidate.get("canonicalUrl")
-                    or (f"https://www.instagram.com/{username}/" if username else "")
-                )
-                details=apify_instagram_profile_details(profile_url) if profile_url else {}
-                if details:
-                    merged=dict(candidate)
-                    merged.update({k:v for k,v in details.items() if v not in (None,"",[],{})})
-                    candidate=merged
-                followers=_to_int(
-                    candidate.get("followersCount")
-                    or candidate.get("followers")
-                    or candidate.get("followedByCount")
-                )
-
+                followers=_to_int(candidate.get("followersCount") or candidate.get("followers") or candidate.get("followedByCount"))
                 if username and not lead.ig_handle:
                     lead.ig_handle="@"+username
                     ig_count+=1
-
                 if followers:
                     lead.ig_followers=followers
+                # Instagram rows use Instagram audience as primary audience.
+                if lead.platform=="Instagram" and followers:
+                    lead.followers=followers
+                if lead.platform=="Instagram" and not lead.profile_url:
+                    lead.profile_url=candidate.get("url") or f"https://www.instagram.com/{username}/"
 
                 if not lead.email:
                     public_email=_public_email_from_ig(candidate)
                     if public_email:
-                        lead.email=public_email
-                        lead.email_confidence=1.0
-                        email_count+=1
+                        lead.email=public_email; lead.email_confidence=1.0; email_count+=1
 
             if has_hunter and not lead.email:
-                source_text=lead.evidence or ""
+                source_text=(lead.evidence or "")
                 if candidate:
                     source_text += " " + " ".join(_ig_urls(candidate))
                     source_text += " " + (candidate.get("biography") or candidate.get("bio") or "")
-
                 domain=_extract_domain(source_text)
                 if domain:
                     email,conf=hunter_domain_lookup(domain)
                     if email:
-                        lead.email=email
-                        lead.email_confidence=conf
-                        email_count+=1
+                        lead.email=email; lead.email_confidence=conf; email_count+=1
 
             if lead.ig_handle and lead.score<100:
                 lead.score=min(100,lead.score+3)
             if lead.email and lead.score<100:
                 lead.score=min(100,lead.score+5)
-
             lead.updated_at=datetime.utcnow()
-            db.commit()
 
-        progress = 98 if total == 0 else min(98, 85 + int((idx / total) * 13))
-        with get_db() as db:
-            j=db.get(Job,job_id)
-            if j and j.status=="running":
-                j.progress=progress
-                j.message=f"Enriching leads {idx}/{total}"
-                db.commit()
-
-    return {"instagram":ig_count,"email":email_count,"checked":checked}
-
+        db.commit()
+        return {"instagram":ig_count,"email":email_count,"checked":checked}
 # ---------- End live enrichment helpers ----------
 
 def pipeline_job(job_id:int,wid:int,payload:dict):
@@ -806,51 +688,20 @@ def pipeline_job(job_id:int,wid:int,payload:dict):
     try:
         if yt_key:
             out=BASE/"data"/f"workspace_{wid}_job_{job_id}.csv"
-            cmd=[sys.executable,str(BASE/"engine"/"youtube_lead_finder.py"),
-                 "--keywords",payload.get("keywords","business coach"),
-                 "--regions","US,GB,AU",
-                 "--min-subs",str(payload.get("min_followers",5000)),
-                 "--max-subs",str(payload.get("max_followers",500000)),
-                 "--min-views-30d",str(payload.get("min_views",20000)),
-                 "--out",str(out)]
+            cmd=[sys.executable,str(BASE/"engine"/"youtube_lead_finder.py"),"--keywords",payload.get("keywords","business coach"),"--min-subs",str(payload.get("min_followers",5000)),"--max-subs",str(payload.get("max_followers",500000)),"--min-views-30d",str(payload.get("min_views",20000)),"--out",str(out)]
             env=os.environ.copy();env["PYTHONPATH"]=str(BASE/"engine")
-            # Run YouTube discovery while updating the job percentage live.
-            # The engine is a separate process, so progress between major phases is
-            # an elapsed-time estimate; phase boundaries themselves are exact.
-            p=subprocess.Popen(cmd,cwd=BASE/"engine",env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-            started=time.time()
-            last_progress=12
-            while p.poll() is None:
-                elapsed=time.time()-started
-                # Smoothly advance from 12% toward 42% while the external discovery
-                # process is working, never claiming the phase is complete early.
-                estimated=min(42, 12 + int(elapsed/3))
-                if estimated>last_progress:
-                    last_progress=estimated
-                    with get_db() as db:
-                        j=db.get(Job,job_id)
-                        if j:
-                            j.progress=estimated
-                            j.message="Scanning live YouTube channels"
-                            db.commit()
-                time.sleep(1.0)
-            stdout,stderr=p.communicate()
+            p=subprocess.run(cmd,cwd=BASE/"engine",env=env,capture_output=True,text=True,timeout=900)
             if p.returncode!=0:
-                raise RuntimeError("YouTube discovery failed: "+(stderr or stdout)[-1200:])
+                raise RuntimeError("YouTube discovery failed: "+(p.stderr or p.stdout)[-1200:])
 
             with get_db() as db:
-                j=db.get(Job,job_id);j.progress=50;j.message="Importing YouTube results";db.commit()
+                j=db.get(Job,job_id);j.progress=45;j.message="Importing YouTube results";db.commit()
             with open(out,newline="",encoding="utf-8") as f:
                 rows=list(csv.DictReader(f))
             with get_db() as db:
                 for r in rows:
                     ext=r.get("channel_id","")
                     if not ext: continue
-                    raw_region=(r.get("country") or "").strip().upper()
-                    region_map={"US":"USA","USA":"USA","GB":"UK","UK":"UK","AU":"AU","AUS":"AU"}
-                    canonical_region=region_map.get(raw_region,"")
-                    if canonical_region not in TARGET_REGION_CODES:
-                        continue
                     exists=db.scalar(select(Lead).where(Lead.workspace_id==wid,Lead.platform=="YouTube",Lead.external_id==ext))
                     if exists:
                         # Refresh live metrics instead of silently skipping an existing lead.
@@ -858,7 +709,7 @@ def pipeline_job(job_id:int,wid:int,payload:dict):
                         exists.profile_url=r.get("channel_url","") or exists.profile_url
                         exists.followers=int(float(r.get("subscribers") or exists.followers or 0))
                         exists.views_30d=int(float(r.get("views_last_30d") or exists.views_30d or 0))
-                        exists.region=canonical_region
+                        exists.region=r.get("country","") or exists.region
                         exists.coaching_confidence=float(r.get("coaching_confidence") or exists.coaching_confidence or 0)
                         exists.faceless_screen=r.get("faceless_screen","") or exists.faceless_screen
                         exists.evidence=r.get("description_snippet","") or exists.evidence
@@ -868,7 +719,7 @@ def pipeline_job(job_id:int,wid:int,payload:dict):
                         continue
                     lead=Lead(workspace_id=wid,platform="YouTube",external_id=ext,name=r.get("channel",""),handle="",profile_url=r.get("channel_url",""),
                                 niche=payload.get("niche","Unclassified"),followers=int(float(r.get("subscribers") or 0)),views_30d=int(float(r.get("views_last_30d") or 0)),
-                                region=canonical_region,language="English",sells_coaching=(r.get("sells_coaching","").lower()=="yes"),
+                                region=r.get("country",""),language="English",sells_coaching=(r.get("sells_coaching","").lower()=="yes"),
                                 coaching_confidence=float(r.get("coaching_confidence") or 0),faceless_screen=r.get("faceless_screen","uncertain"),
                                 email=r.get("email",""),ig_handle=r.get("ig_handle",""),ig_followers=int(float(r.get("ig_followers") or 0)),
                                 score=int(float(r.get("score") or 0)),status="New",evidence=r.get("description_snippet",""),source="youtube_api")
@@ -879,12 +730,12 @@ def pipeline_job(job_id:int,wid:int,payload:dict):
 
         if apify_key:
             with get_db() as db:
-                j=db.get(Job,job_id);j.progress=68;j.message="Searching live Instagram profiles";db.commit()
+                j=db.get(Job,job_id);j.progress=62;j.message="Searching live Instagram profiles";db.commit()
             ig_n=import_instagram_leads(wid,payload,job_id)
 
         with get_db() as db:
-            j=db.get(Job,job_id);j.progress=85;j.message="Matching Instagram profiles and enriching emails";db.commit()
-        stats=enrich_workspace_leads(wid,job_id,max_leads=10)
+            j=db.get(Job,job_id);j.progress=78;j.message="Matching Instagram profiles and enriching emails";db.commit()
+        stats=enrich_workspace_leads(wid,max_leads=20)
 
         total=yt_n+ig_n
         with get_db() as db:
@@ -939,6 +790,8 @@ def jobs_api(request:Request):
 @app.post("/jobs/discovery")
 def create_job(request:Request,background_tasks:BackgroundTasks,keywords:str=Form(...),niche:str=Form("Unclassified"),min_followers:int=Form(5000),max_followers:int=Form(500000),min_views:int=Form(20000)):
     u,w=require(request)
+    if w.subscription_status not in ACTIVE_SUBSCRIPTION_STATUSES or w.monthly_limit<=0:
+        return RedirectResponse("/billing?subscription_required=1",303)
     if w.used_this_month>=w.monthly_limit:
         return RedirectResponse("/billing?limit=1",303)
     payload={"keywords":keywords,"niche":niche,"min_followers":min_followers,"max_followers":max_followers,"min_views":min_views}
@@ -956,26 +809,178 @@ def settings_page(request:Request):
 @app.get("/billing",response_class=HTMLResponse)
 def billing_page(request:Request):
     u,w=require(request)
-    return templates.TemplateResponse("billing.html",ctx(request,"billing"))
+    notice=""
+    session_id=request.query_params.get("session_id","").strip()
+
+    # Immediate post-checkout synchronization. Webhooks remain the source of truth,
+    # but this gives the customer instant access after returning from Checkout.
+    if session_id and os.getenv("STRIPE_SECRET_KEY"):
+        try:
+            stripe.api_key=os.getenv("STRIPE_SECRET_KEY")
+            session=stripe.checkout.Session.retrieve(session_id)
+            metadata=_stripe_obj_get(session,"metadata",{}) or {}
+            if str(metadata.get("workspace_id",""))==str(w.id):
+                sub_id=_stripe_obj_get(session,"subscription","")
+                if sub_id:
+                    subscription=stripe.Subscription.retrieve(sub_id)
+                    with get_db() as db:
+                        ww=db.get(Workspace,w.id)
+                        apply_stripe_subscription(db,ww,subscription)
+                        activity(db,w.id,"Stripe subscription activated",ww.plan)
+                        db.commit()
+                    w=workspace_for_user(u.id)
+                    notice="Subscription activated successfully."
+        except Exception as e:
+            print(f"Checkout return sync failed: {e}")
+
+    if request.query_params.get("canceled"):
+        notice="Checkout was canceled. No charge was made."
+    elif request.query_params.get("subscription_required"):
+        notice="Choose a plan to start live discovery."
+    elif request.query_params.get("limit"):
+        notice="You have reached this month's lead allowance."
+    elif request.query_params.get("missing_stripe"):
+        notice="Stripe is not fully configured yet."
+
+    stripe_ready=bool(
+        os.getenv("STRIPE_SECRET_KEY")
+        and all(stripe_price_ids().values())
+    )
+    portal_ready=bool(stripe_ready and w.stripe_customer_id)
+    return templates.TemplateResponse(
+        "billing.html",
+        ctx(request,"billing",stripe_ready=stripe_ready,portal_ready=portal_ready,notice=notice)
+    )
 
 @app.post("/billing/checkout")
 def checkout(request:Request,plan:str=Form(...)):
     u,w=require(request)
-    key=os.getenv("STRIPE_SECRET_KEY","")
-    price=os.getenv(f"STRIPE_PRICE_{plan.upper()}","")
+    if plan not in PLANS:
+        raise HTTPException(400,"Unknown plan")
+
+    key=os.getenv("STRIPE_SECRET_KEY","").strip()
+    price=stripe_price_ids().get(plan,"")
     if not key or not price:
         return RedirectResponse(f"/billing?missing_stripe=1&plan={plan}",303)
+
     stripe.api_key=key
-    session=stripe.checkout.Session.create(mode="subscription",line_items=[{"price":price,"quantity":1}],success_url=os.getenv("APP_URL","http://127.0.0.1:8000")+"/billing?success=1",cancel_url=os.getenv("APP_URL","http://127.0.0.1:8000")+"/billing?canceled=1",customer_email=u.email)
+
+    with get_db() as db:
+        ww=db.get(Workspace,w.id)
+        if not ww.stripe_customer_id:
+            customer=stripe.Customer.create(
+                email=u.email,
+                name=u.full_name or None,
+                metadata={"workspace_id":str(w.id)}
+            )
+            ww.stripe_customer_id=customer.id
+            db.commit()
+        customer_id=ww.stripe_customer_id
+
+    session=stripe.checkout.Session.create(
+        mode="subscription",
+        customer=customer_id,
+        client_reference_id=str(w.id),
+        line_items=[{"price":price,"quantity":1}],
+        metadata={"workspace_id":str(w.id),"plan":plan},
+        subscription_data={"metadata":{"workspace_id":str(w.id),"plan":plan}},
+        success_url=app_url()+"/billing?session_id={CHECKOUT_SESSION_ID}",
+        cancel_url=app_url()+"/billing?canceled=1",
+        allow_promotion_codes=True,
+    )
     return RedirectResponse(session.url,303)
 
-@app.post("/billing/change-demo")
-def demo_plan(request:Request,plan:str=Form(...)):
+@app.post("/billing/portal")
+def billing_portal(request:Request):
     u,w=require(request)
-    if plan not in PLANS: raise HTTPException(400)
+    key=os.getenv("STRIPE_SECRET_KEY","").strip()
+    if not key or not w.stripe_customer_id:
+        return RedirectResponse("/billing?missing_stripe=1",303)
+    stripe.api_key=key
+    portal=stripe.billing_portal.Session.create(
+        customer=w.stripe_customer_id,
+        return_url=app_url()+"/billing"
+    )
+    return RedirectResponse(portal.url,303)
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request:Request):
+    secret=os.getenv("STRIPE_WEBHOOK_SECRET","").strip()
+    key=os.getenv("STRIPE_SECRET_KEY","").strip()
+    if not secret or not key:
+        raise HTTPException(503,"Stripe webhook is not configured")
+
+    payload=await request.body()
+    signature=request.headers.get("stripe-signature","")
+    stripe.api_key=key
+
+    try:
+        event=stripe.Webhook.construct_event(payload,signature,secret)
+    except Exception as e:
+        print(f"Stripe webhook signature error: {e}")
+        raise HTTPException(400,"Invalid Stripe webhook")
+
+    event_id=_stripe_obj_get(event,"id","")
+    event_type=_stripe_obj_get(event,"type","")
+    data=_stripe_obj_get(event,"data",{}) or {}
+    obj=_stripe_obj_get(data,"object",{}) or {}
+
     with get_db() as db:
-        ww=db.get(Workspace,w.id);ww.plan=plan;ww.monthly_limit=PLANS[plan]["limit"];ww.subscription_status="active";activity(db,w.id,"Plan changed",plan);db.commit()
-    return RedirectResponse("/billing",303)
+        if event_id and db.scalar(select(StripeEvent).where(StripeEvent.event_id==event_id)):
+            return JSONResponse({"received":True,"duplicate":True})
+
+        try:
+            if event_type=="checkout.session.completed":
+                workspace=workspace_for_stripe_object(db,obj)
+                if workspace:
+                    customer=_stripe_obj_get(obj,"customer","") or ""
+                    subscription_id=_stripe_obj_get(obj,"subscription","") or ""
+                    if customer:
+                        workspace.stripe_customer_id=str(customer)
+                    if subscription_id:
+                        subscription=stripe.Subscription.retrieve(subscription_id)
+                        apply_stripe_subscription(db,workspace,subscription)
+                        activity(db,workspace.id,"Stripe checkout completed",workspace.plan)
+
+            elif event_type in ("customer.subscription.created","customer.subscription.updated","customer.subscription.deleted"):
+                workspace=workspace_for_stripe_object(db,obj)
+                if workspace:
+                    apply_stripe_subscription(db,workspace,obj)
+                    activity(db,workspace.id,"Subscription updated",workspace.subscription_status)
+
+            elif event_type=="invoice.paid":
+                customer=_stripe_obj_get(obj,"customer","") or ""
+                workspace=db.scalar(select(Workspace).where(Workspace.stripe_customer_id==str(customer))) if customer else None
+                if workspace:
+                    billing_reason=_stripe_obj_get(obj,"billing_reason","") or ""
+                    if billing_reason=="subscription_cycle":
+                        workspace.used_this_month=0
+                        activity(db,workspace.id,"Monthly lead allowance reset",workspace.plan)
+
+                    subscription_id=_stripe_obj_get(obj,"subscription","") or workspace.stripe_subscription_id
+                    if subscription_id:
+                        try:
+                            subscription=stripe.Subscription.retrieve(subscription_id)
+                            apply_stripe_subscription(db,workspace,subscription)
+                        except Exception as e:
+                            print(f"Invoice subscription sync failed: {e}")
+
+            elif event_type=="invoice.payment_failed":
+                customer=_stripe_obj_get(obj,"customer","") or ""
+                workspace=db.scalar(select(Workspace).where(Workspace.stripe_customer_id==str(customer))) if customer else None
+                if workspace:
+                    workspace.subscription_status="past_due"
+                    activity(db,workspace.id,"Stripe payment failed","Billing action required")
+
+            if event_id:
+                db.add(StripeEvent(event_id=str(event_id),event_type=str(event_type)))
+            db.commit()
+
+        except Exception:
+            db.rollback()
+            raise
+
+    return JSONResponse({"received":True})
 
 def _export_rows(db, wid:int, run_id:int=0):
     q=select(Lead).where(Lead.workspace_id==wid)

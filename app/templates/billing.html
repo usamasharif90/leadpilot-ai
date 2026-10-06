@@ -1,4 +1,77 @@
-{% extends "base.html" %}{% block title %}Billing · LeadPilot{% endblock %}{% block content %}
-<div class="page-head"><div><h1>Billing & Plan</h1><p>Manage your monthly lead allowance and subscription tier.</p></div></div>
-<div class="cards"><div class="metric"><div class="k">Current plan</div><div class="v">{{workspace.plan}}</div><div class="s">{{workspace.subscription_status}}</div></div><div class="metric"><div class="k">Monthly allowance</div><div class="v">{{workspace.monthly_limit}}</div></div><div class="metric"><div class="k">Used this month</div><div class="v">{{workspace.used_this_month}}</div></div><div class="metric"><div class="k">Remaining</div><div class="v">{{workspace.monthly_limit-workspace.used_this_month}}</div></div></div>
-<div class="grid3">{% for name,p in plans.items() %}<div class="client-card"><div class="client-top"><div class="client-logo">$</div><span class="badge {{'b-purple' if workspace.plan==name else 'b-gray'}}">{{'Current' if workspace.plan==name else name}}</span></div><h3>{{name}}</h3><p>${{p.price}} / month</p><div class="mini" style="margin:12px 0"><small>Included leads</small><b>{{p.limit}} / month</b></div><form method="post" action="/billing/checkout"><input type="hidden" name="plan" value="{{name}}"><button class="btn primary" style="width:100%">Subscribe with Stripe</button></form><form method="post" action="/billing/change-demo" style="margin-top:8px"><input type="hidden" name="plan" value="{{name}}"><button class="btn" style="width:100%">Use demo plan</button></form></div>{% endfor %}</div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Billing · LeadPilot{% endblock %}
+{% block content %}
+<style>
+.billing-notice{margin-bottom:14px;background:#f4f4ff;border:1px solid #dedcff;border-radius:10px;padding:11px 13px;color:#5252c7;font-size:11px;font-weight:750}
+.plan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.plan-card{background:#fff;border:1px solid var(--line);border-radius:13px;padding:17px;box-shadow:var(--shadow)}
+.plan-card.current{border-color:#8e8eff;box-shadow:0 0 0 2px rgba(97,97,255,.08)}
+.plan-card h3{margin:0;font-size:14px}.plan-price{font-size:25px;font-weight:900;margin:10px 0 2px}.plan-price small{font-size:10px;color:var(--muted);font-weight:700}
+.plan-copy{color:var(--muted);font-size:10px;margin-bottom:13px}.plan-limit{background:#f8f9fb;border-radius:9px;padding:10px;margin-bottom:12px}.plan-limit small{display:block;color:var(--muted);font-size:9px}.plan-limit b{display:block;margin-top:3px;font-size:12px}
+.billing-status{display:flex;align-items:center;justify-content:space-between;gap:12px}
+@media(max-width:900px){.plan-grid{grid-template-columns:1fr}}
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>Billing & Plan</h1>
+    <p>Manage your subscription, monthly lead allowance and payment method.</p>
+  </div>
+  {% if portal_ready %}
+  <form method="post" action="/billing/portal">
+    <button class="btn">Manage billing</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if notice %}<div class="billing-notice">{{notice}}</div>{% endif %}
+
+<div class="cards">
+  <div class="metric"><div class="k">Current plan</div><div class="v">{{workspace.plan}}</div><div class="s">{{workspace.subscription_status}}</div></div>
+  <div class="metric"><div class="k">Monthly allowance</div><div class="v">{{workspace.monthly_limit}}</div><div class="s">qualified leads</div></div>
+  <div class="metric"><div class="k">Used this month</div><div class="v">{{workspace.used_this_month}}</div><div class="s">lead credits consumed</div></div>
+  <div class="metric"><div class="k">Remaining</div><div class="v">{{[workspace.monthly_limit-workspace.used_this_month,0]|max}}</div><div class="s">until next billing cycle</div></div>
+</div>
+
+<div class="panel" style="margin-bottom:14px">
+  <div class="panel-head"><h3>Subscription status</h3></div>
+  <div class="panel-body billing-status">
+    <div>
+      <b>{{workspace.subscription_status|replace('_',' ')|title}}</b>
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">
+        {% if workspace.stripe_cancel_at_period_end %}Cancellation scheduled at period end.{% elif workspace.stripe_current_period_end %}Current period ends {{workspace.stripe_current_period_end.strftime('%Y-%m-%d')}}.{% else %}Stripe will update this status automatically after checkout.{% endif %}
+      </div>
+    </div>
+    <span class="badge {{'b-green' if workspace.subscription_status in ['active','trialing','trial'] else ('b-yellow' if workspace.subscription_status in ['past_due','incomplete'] else 'b-gray')}}">{{workspace.subscription_status}}</span>
+  </div>
+</div>
+
+<div class="plan-grid">
+{% for name,p in plans.items() %}
+  <div class="plan-card {{'current' if workspace.plan==name and workspace.subscription_status in ['active','trialing','trial']}}">
+    <div class="client-top">
+      <h3>{{name}}</h3>
+      {% if workspace.plan==name and workspace.subscription_status in ['active','trialing','trial'] %}<span class="badge b-purple">Current</span>{% endif %}
+    </div>
+    <div class="plan-price">${{"{:,}".format(p.price)}} <small>/ month</small></div>
+    <div class="plan-copy">Recurring monthly subscription billed securely by Stripe.</div>
+    <div class="plan-limit"><small>Included qualified leads</small><b>{{p.limit}} / month</b></div>
+
+    {% if stripe_ready %}
+      <form method="post" action="/billing/checkout">
+        <input type="hidden" name="plan" value="{{name}}">
+        <button class="btn primary" style="width:100%" {% if workspace.plan==name and workspace.subscription_status in ['active','trialing'] %}disabled{% endif %}>
+          {% if workspace.plan==name and workspace.subscription_status in ['active','trialing'] %}Current plan{% elif workspace.stripe_customer_id %}Switch to {{name}}{% else %}Choose {{name}}{% endif %}
+        </button>
+      </form>
+    {% else %}
+      <button class="btn" style="width:100%" disabled>Stripe setup required</button>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+
+<div class="notice">
+  Payments are processed by Stripe. LeadPilot does not store card numbers. Subscription status and monthly allowances are synchronized through Stripe webhooks.
+</div>
+{% endblock %}

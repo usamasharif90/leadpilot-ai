@@ -125,3 +125,17 @@ For your first agencies, keep onboarding controlled:
 - only then open self-service access broadly
 
 This reduces risk while you validate data quality and provider economics.
+
+## Discovery run organization
+
+This build keeps each discovery run separate through a `job_leads` association table. The Data Sources page polls job status automatically, completed runs offer **View leads** and **Download Excel**, Lead Finder defaults to the newest completed run, and All Leads can be filtered by YouTube, Instagram, or Facebook Ads.
+
+## Production billing
+
+LeadPilot supports Stripe Checkout subscriptions for Starter, Growth and Scale.
+Subscription status, monthly limits, cancellations and payment failures are synchronized
+through `/stripe/webhook`. Customers with a Stripe customer record can open the Stripe
+Customer Portal from the Billing page.
+
+New workspaces receive no live-discovery credits by default (`FREE_TRIAL_LEADS=0`) until
+a subscription is active. Configure a non-zero value only if you intentionally want a trial.
