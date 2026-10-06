@@ -224,7 +224,7 @@ def login(request:Request,email:str=Form(...),password:str=Form(...)):
         u=db.scalar(select(User).where(User.email==email.lower().strip()))
         if not u or not verify_password(password,u.password_hash):
             return templates.TemplateResponse("login.html",{"request":request,"mode":"login","error":"Invalid email or password"})
-        r=RedirectResponse("/",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",secure=False,max_age=60*60*24*30);return r
+        r=RedirectResponse("/",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",secure=os.getenv("APP_URL","").startswith("https://"),max_age=60*60*24*30);return r
 
 @app.get("/signup",response_class=HTMLResponse)
 def signup_page(request:Request):
@@ -241,7 +241,7 @@ def signup(full_name:str=Form(...),workspace_name:str=Form(...),email:str=Form(.
             trial_status="trial" if trial_leads>0 else "inactive"
             w=Workspace(name=workspace_name,owner_user_id=u.id,plan="Starter",subscription_status=trial_status,monthly_limit=trial_leads);db.add(w);db.flush()
             db.add(Membership(workspace_id=w.id,user_id=u.id,role="owner"));db.commit()
-            r=RedirectResponse("/billing?welcome=1",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",max_age=60*60*24*30);return r
+            r=RedirectResponse("/billing?welcome=1",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",secure=os.getenv("APP_URL","").startswith("https://"),max_age=60*60*24*30);return r
         except IntegrityError:
             db.rollback();return RedirectResponse("/signup?error=email",303)
 
@@ -839,6 +839,8 @@ def billing_page(request:Request):
         notice="Checkout was canceled. No charge was made."
     elif request.query_params.get("welcome"):
         notice="Welcome to LeadPilot. Choose a plan to activate your workspace and start live discovery."
+    elif request.query_params.get("manage_existing"):
+        notice="You already have a subscription. Use Manage billing to change or cancel your plan."
     elif request.query_params.get("subscription_required"):
         notice="Choose a plan to activate your workspace and start live discovery."
     elif request.query_params.get("limit"):
@@ -859,6 +861,9 @@ def billing_page(request:Request):
 @app.post("/billing/checkout")
 def checkout(request:Request,plan:str=Form(...)):
     u,w=require(request)
+    existing_subscription_statuses={"active","trialing","trial","past_due","unpaid","incomplete","paused"}
+    if w.stripe_subscription_id and w.subscription_status in existing_subscription_statuses:
+        return RedirectResponse("/billing?manage_existing=1",303)
     if plan not in PLANS:
         raise HTTPException(400,"Unknown plan")
 
