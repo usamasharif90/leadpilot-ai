@@ -219,11 +219,11 @@ def login_page(request:Request):
     return templates.TemplateResponse("login.html",{"request":request,"mode":"login"})
 
 @app.post("/login")
-def login(email:str=Form(...),password:str=Form(...)):
+def login(request:Request,email:str=Form(...),password:str=Form(...)):
     with get_db() as db:
         u=db.scalar(select(User).where(User.email==email.lower().strip()))
         if not u or not verify_password(password,u.password_hash):
-            return templates.TemplateResponse("login.html",{"request":Request,"mode":"login","error":"Invalid email or password"})
+            return templates.TemplateResponse("login.html",{"request":request,"mode":"login","error":"Invalid email or password"})
         r=RedirectResponse("/",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",secure=False,max_age=60*60*24*30);return r
 
 @app.get("/signup",response_class=HTMLResponse)
