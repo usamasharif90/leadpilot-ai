@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Data Sources · LeadPilot{% endblock %}
+{% block title %}Discovery · LeadPilot{% endblock %}
 {% block content %}
 <style>
   .lpds-wrap{width:100%}
@@ -8,22 +8,15 @@
   .lpds-head p{margin:7px 0 0;color:#747887;font-size:13px}
   .lpds-run-btn{display:inline-flex;align-items:center;justify-content:center;border:0;background:#6161ff;color:#fff;border-radius:10px;padding:10px 14px;font-size:12px;font-weight:850;cursor:pointer;box-shadow:0 1px 2px rgba(20,24,40,.06)}
   .lpds-run-btn:hover{background:#5151e8}
-
-  .lpds-providers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
-  .lpds-provider{background:#fff;border:1px solid #e6e8ee;border-radius:14px;padding:16px;display:flex;align-items:center;gap:13px;min-height:86px;box-shadow:0 1px 2px rgba(20,24,40,.04)}
-  .lpds-icon{width:42px;height:42px;border-radius:11px;background:#efefff;color:#5757df;display:grid;place-items:center;flex:0 0 auto;font-size:18px;font-weight:900}
-  .lpds-copy{min-width:0;flex:1}
-  .lpds-copy strong{display:block;font-size:13px;color:#292c35;line-height:1.2}
-  .lpds-copy small{display:block;color:#818592;font-size:10px;line-height:1.35;margin-top:4px}
-  .lpds-status{display:inline-flex;align-items:center;justify-content:center;padding:5px 8px;border-radius:999px;font-size:9px;font-weight:900;white-space:nowrap}
-  .lpds-ok{background:#ddf7ea;color:#087e56}
-  .lpds-warn{background:#fff0d3;color:#946100}
-
+  .lpds-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+  .lpds-card{background:#fff;border:1px solid #e6e8ee;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(20,24,40,.04)}
+  .lpds-card small{display:block;color:#858895;font-size:9px;text-transform:uppercase;letter-spacing:.06em;font-weight:850}
+  .lpds-card strong{display:block;margin-top:6px;font-size:18px;color:#292c35}
+  .lpds-card span{display:block;margin-top:4px;color:#818592;font-size:10px;line-height:1.4}
   .lpds-panel{background:#fff;border:1px solid #e6e8ee;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(20,24,40,.04)}
   .lpds-panel-head{padding:16px 18px;border-bottom:1px solid #eceef3}
   .lpds-panel-head h3{margin:0;font-size:14px;color:#292c35}
   .lpds-panel-head small{display:block;margin-top:4px;color:#858895;font-size:10px}
-
   .lpds-table-wrap{overflow-x:auto}
   .lpds-table{width:100%;border-collapse:collapse;min-width:1080px}
   .lpds-table th{background:#fafbfc;color:#7d808c;text-transform:uppercase;letter-spacing:.055em;font-size:9px;text-align:left;padding:11px 14px;border-bottom:1px solid #eceef3}
@@ -31,77 +24,45 @@
   .lpds-table tr:last-child td{border-bottom:0}
   .lpds-runid{font-weight:900;color:#2d3039}
   .lpds-step{max-width:440px;color:#4a4e58;line-height:1.4}
-
   .lpds-badge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;font-size:9px;font-weight:900}
-  .lpds-completed{background:#ddf7ea;color:#087e56}
-  .lpds-running{background:#fff0d3;color:#946100}
-  .lpds-failed{background:#ffe2e7;color:#b52a41}
-
+  .lpds-completed{background:#ddf7ea;color:#087e56}.lpds-running{background:#fff0d3;color:#946100}.lpds-failed{background:#ffe2e7;color:#b52a41}
   .lpds-progress-wrap{display:flex;align-items:center;gap:10px}
   .ds-progress-track{width:185px;height:9px;border-radius:999px;background:#eceef3;overflow:hidden;position:relative;flex:0 0 auto}
   .job-progress{height:100%;border-radius:999px;background:#6161ff;transition:width .5s ease;position:relative}
   .ds-progress-track.running .job-progress:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.78),transparent);transform:translateX(-100%);animation:lpdsShimmer 1.15s linear infinite}
   @keyframes lpdsShimmer{to{transform:translateX(100%)}}
   .progress-label{font-size:10px;font-weight:900;min-width:36px;color:#4a4d56}
-
   .lpds-actions{display:flex;align-items:center;gap:7px;flex-wrap:nowrap}
   .lpds-action{display:inline-flex;align-items:center;justify-content:center;border:1px solid #dfe2e8;background:#fff;color:#3f424b;border-radius:9px;padding:7px 10px;font-size:10px;font-weight:850;white-space:nowrap}
-  .lpds-action:hover{background:#fafbfc;border-color:#cfd3db}
   .lpds-action.excel{background:#e4f8ef;border-color:#c5efdd;color:#087f58}
   .lpds-muted{font-size:10px;color:#9a9da8;font-weight:750}
-
-  .lpds-modal-note{color:#858895;font-size:10px;margin-top:3px}
-
-  @media(max-width:1050px){
-    .lpds-providers{grid-template-columns:1fr}
-  }
-  @media(max-width:720px){
-    .lpds-head{flex-direction:column}
-    .lpds-run-btn{width:100%}
-  }
+  @media(max-width:900px){.lpds-summary{grid-template-columns:1fr}}
 </style>
 
 <div class="lpds-wrap">
   <div class="lpds-head">
     <div>
-      <h1>Data Sources</h1>
-      <p>Live discovery, enrichment and export status in one place.</p>
+      <h1>Discovery</h1>
+      <p>Run live lead discovery, track progress and export qualified results.</p>
     </div>
     <button class="lpds-run-btn" onclick="openModal('runDiscovery')">+ Run discovery</button>
   </div>
 
-  <div class="lpds-providers">
-    <div class="lpds-provider">
-      <div class="lpds-icon">▶</div>
-      <div class="lpds-copy">
-        <strong>YouTube Data API</strong>
-        <small>Live creator discovery, subscriber data and recent-view velocity</small>
-      </div>
-      <span class="lpds-status {{'lpds-ok' if configured.youtube else 'lpds-warn'}}">
-        {{'Connected' if configured.youtube else 'Needs key'}}
-      </span>
+  <div class="lpds-summary">
+    <div class="lpds-card">
+      <small>Discovery engine</small>
+      <strong>Live</strong>
+      <span>Finds and qualifies creator-led coaching businesses.</span>
     </div>
-
-    <div class="lpds-provider">
-      <div class="lpds-icon">◎</div>
-      <div class="lpds-copy">
-        <strong>Instagram</strong>
-        <small>Live Apify discovery, profile matching and enrichment</small>
-      </div>
-      <span class="lpds-status {{'lpds-ok' if configured.instagram else 'lpds-warn'}}">
-        {{'Connected' if configured.instagram else 'Optional'}}
-      </span>
+    <div class="lpds-card">
+      <small>Enrichment</small>
+      <strong>Enabled</strong>
+      <span>Adds available social and contact information to qualified leads.</span>
     </div>
-
-    <div class="lpds-provider">
-      <div class="lpds-icon">@</div>
-      <div class="lpds-copy">
-        <strong>Hunter</strong>
-        <small>Email enrichment and confidence scoring</small>
-      </div>
-      <span class="lpds-status {{'lpds-ok' if configured.hunter else 'lpds-warn'}}">
-        {{'Connected' if configured.hunter else 'Optional'}}
-      </span>
+    <div class="lpds-card">
+      <small>Target markets</small>
+      <strong>USA · UK · AU</strong>
+      <span>Strict geography rules are applied before leads are imported.</span>
     </div>
   </div>
 
@@ -115,24 +76,14 @@
       <table id="jobsTable" class="lpds-table">
         <thead>
           <tr>
-            <th>Run</th>
-            <th>Status</th>
-            <th>Live progress</th>
-            <th>Current step</th>
-            <th>Results</th>
-            <th>Started</th>
-            <th>Actions</th>
+            <th>Run</th><th>Status</th><th>Live progress</th><th>Current step</th><th>Results</th><th>Started</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
         {% for j in jobs %}
           <tr data-job-id="{{j.id}}">
             <td class="lpds-runid">#{{j.id}}</td>
-            <td>
-              <span class="job-status lpds-badge {{'lpds-completed' if j.status=='completed' else ('lpds-failed' if j.status=='failed' else 'lpds-running')}}">
-                {{j.status}}
-              </span>
-            </td>
+            <td><span class="job-status lpds-badge {{'lpds-completed' if j.status=='completed' else ('lpds-failed' if j.status=='failed' else 'lpds-running')}}">{{j.status}}</span></td>
             <td>
               <div class="lpds-progress-wrap">
                 <div class="ds-progress-track {{'running' if j.status in ['queued','running'] else ''}}">
@@ -168,43 +119,19 @@
   <div class="modal-card">
     <form method="post" action="/jobs/discovery">
       <div class="modal-head">
-        <div>
-          <b>Run live discovery</b>
-          <div class="lpds-modal-note">YouTube + Instagram + Hunter enrichment</div>
-        </div>
+        <div><b>Run live discovery</b><div style="color:#858895;font-size:10px;margin-top:3px">Qualified lead discovery + enrichment</div></div>
         <button type="button" class="btn small" onclick="closeModal('runDiscovery')">×</button>
       </div>
-
       <div class="modal-body">
-        <div class="field">
-          <label>Keywords</label>
-          <input name="keywords" value="business coach,fitness coach" required>
-        </div>
-
-        <div class="field" style="margin-top:12px">
-          <label>Niche label</label>
-          <input name="niche" value="Business Coaching">
-        </div>
-
+        <div class="field"><label>Keywords</label><input name="keywords" value="business coach,fitness coach" required></div>
+        <div class="field" style="margin-top:12px"><label>Niche label</label><input name="niche" value="Business Coaching"></div>
         <div class="filter-grid" style="margin-top:12px">
-          <div class="field">
-            <label>Min audience</label>
-            <input name="min_followers" type="number" value="5000">
-          </div>
-          <div class="field">
-            <label>Max audience</label>
-            <input name="max_followers" type="number" value="500000">
-          </div>
-          <div class="field">
-            <label>Min 30-day views</label>
-            <input name="min_views" type="number" value="20000">
-          </div>
+          <div class="field"><label>Min audience</label><input name="min_followers" type="number" value="5000"></div>
+          <div class="field"><label>Max audience</label><input name="max_followers" type="number" value="500000"></div>
+          <div class="field"><label>Min 30-day views</label><input name="min_views" type="number" value="20000"></div>
         </div>
       </div>
-
-      <div class="modal-actions">
-        <button class="btn primary">Start discovery</button>
-      </div>
+      <div class="modal-actions"><button class="btn primary">Start discovery</button></div>
     </form>
   </div>
 </div>

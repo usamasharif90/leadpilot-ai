@@ -43,9 +43,9 @@ app=FastAPI(title="LeadPilot AI", version="1.0")
 app.mount("/static", StaticFiles(directory=BASE/"app"/"static"), name="static")
 
 PLANS={
- "Starter":{"limit":100,"price":500},
- "Growth":{"limit":300,"price":950},
- "Scale":{"limit":750,"price":1500},
+ "Starter":{"limit":100,"price":199},
+ "Growth":{"limit":300,"price":399},
+ "Scale":{"limit":750,"price":699},
 }
 
 ACTIVE_SUBSCRIPTION_STATUSES={"active","trialing","trial"}
@@ -241,7 +241,7 @@ def signup(full_name:str=Form(...),workspace_name:str=Form(...),email:str=Form(.
             trial_status="trial" if trial_leads>0 else "inactive"
             w=Workspace(name=workspace_name,owner_user_id=u.id,plan="Starter",subscription_status=trial_status,monthly_limit=trial_leads);db.add(w);db.flush()
             db.add(Membership(workspace_id=w.id,user_id=u.id,role="owner"));seed_workspace(db,w.id);db.commit()
-            r=RedirectResponse("/",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",max_age=60*60*24*30);return r
+            r=RedirectResponse("/billing?welcome=1",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",max_age=60*60*24*30);return r
         except IntegrityError:
             db.rollback();return RedirectResponse("/signup?error=email",303)
 
@@ -252,6 +252,8 @@ def logout():
 @app.get("/",response_class=HTMLResponse)
 def dashboard(request:Request):
     u,w=require(request)
+    if w.subscription_status not in ACTIVE_SUBSCRIPTION_STATUSES or w.monthly_limit<=0:
+        return RedirectResponse("/billing?subscription_required=1",303)
     with get_db() as db:
         leads=db.scalars(select(Lead).where(Lead.workspace_id==w.id).order_by(Lead.score.desc()).limit(8)).all()
         stats={
@@ -835,8 +837,10 @@ def billing_page(request:Request):
 
     if request.query_params.get("canceled"):
         notice="Checkout was canceled. No charge was made."
+    elif request.query_params.get("welcome"):
+        notice="Welcome to LeadPilot. Choose a plan to activate your workspace and start live discovery."
     elif request.query_params.get("subscription_required"):
-        notice="Choose a plan to start live discovery."
+        notice="Choose a plan to activate your workspace and start live discovery."
     elif request.query_params.get("limit"):
         notice="You have reached this month's lead allowance."
     elif request.query_params.get("missing_stripe"):
