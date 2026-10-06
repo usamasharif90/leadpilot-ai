@@ -240,7 +240,7 @@ def signup(full_name:str=Form(...),workspace_name:str=Form(...),email:str=Form(.
             trial_leads=max(0,int(os.getenv("FREE_TRIAL_LEADS","0") or 0))
             trial_status="trial" if trial_leads>0 else "inactive"
             w=Workspace(name=workspace_name,owner_user_id=u.id,plan="Starter",subscription_status=trial_status,monthly_limit=trial_leads);db.add(w);db.flush()
-            db.add(Membership(workspace_id=w.id,user_id=u.id,role="owner"));seed_workspace(db,w.id);db.commit()
+            db.add(Membership(workspace_id=w.id,user_id=u.id,role="owner"));db.commit()
             r=RedirectResponse("/billing?welcome=1",303);r.set_cookie("lp_session",make_session(u.id),httponly=True,samesite="lax",max_age=60*60*24*30);return r
         except IntegrityError:
             db.rollback();return RedirectResponse("/signup?error=email",303)
